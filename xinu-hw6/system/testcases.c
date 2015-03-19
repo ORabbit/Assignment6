@@ -157,11 +157,29 @@ void interruptprintmutex(void)
 	mutexRelease();
 }
 
+void interruptprintmutexorder(void)
+{
+	enable();
+	mutexAcquire();
+	kprintf("SECOND\r\n");
+	mutexRelease();
+}
+
 void testmutex(void)
 {
 	enable();
 	mutexAcquire();
+	resched();
 	kprintf("This string is printed after mutexAcquire()          ------------------------------------------- mutex!\r\n");
+	mutexRelease();
+}
+
+void testmutexorder(void)
+{
+	enable();
+	mutexAcquire();
+	resched();
+	kprintf("FIRST\r\n");
 	mutexRelease();
 }
 
@@ -169,6 +187,37 @@ void testnomutex(void)
 {
 	enable();
 	kprintf("This string is printed without use of mutexAcquire() ------------------------------------------- no mutex!\r\n");
+}
+
+void lowerprio(struct boundedbuffer *bbuff)
+{
+	enable();
+	int x;
+
+	mutexAcquire();
+	kprintf("Removing as lowerprio...\r\n");
+	remove_item(bbuff, &x);
+	kprintf("Removed %d as lowerprio\r\n", x);
+	mutexRelease();
+}
+
+void higherprio(struct boundedbuffer *bbuff)
+{
+	enable();
+	int i;
+	resched();
+		
+	insert_item(bbuff, 1);
+	mutexAcquire();
+	kprintf("Inserted %d\r\n", 1);
+	mutexRelease();
+	
+	resched();
+	
+	remove_item(bbuff, &i); // Should get stuck waiting here
+	mutexAcquire();
+	kprintf("Removed %d as higherprio\r\n", i);
+	mutexRelease();
 }
 
 /* END Textbook code from Ch 5 Programming Project 3, Silberschatz p. 254 */
@@ -194,7 +243,7 @@ void testcases(void)
 	int c, i;
 	struct boundedbuffer bbuff;
 	struct boundedbuffer bbuff2;
-	kprintf("%d\r\n", wait(1000));
+	
 	kprintf("0) Test 1 producer, 1 consumer, same priority\r\n");
 	kprintf("1) Test 1 producer, 1 consumer, consumer priority higher than producer\r\n");
 	kprintf("2) Test 1 producer, 1 consumer, consumer priority higher than producer\r\n");
@@ -204,7 +253,6 @@ void testcases(void)
 	kprintf("6) Test 2 producers, 1 consumer, same priority\r\n");
 	kprintf("7) Test 2 producers, 1 consumer, same priority, one buffer\r\n");
 	kprintf("8) Test 1 producer, 2 consumers, same priority, one buffer\r\n");
-// RECENTLY ADDED	
 	kprintf("9) Test 5 producers, 1 consumer, same priority, one buffer\r\n");
 	kprintf("A) Test 5 producers, 30 consumers, same priority, one buffer\r\n");
 	kprintf("B) Test 30 producers, 5 consumers, same priority, one buffer\r\n");
@@ -213,6 +261,8 @@ void testcases(void)
 	kprintf("E) Test 5 producers, 1 consumer, producers have highest priority, one buffer\r\n");
 
 	kprintf("M) Test mutexAcquire/Release versus no mutexAcquire/Release\r\n");
+	kprintf("N) Test mutexAcquire/Release print order\r\n");
+	kprintf("O) Test if lower priority process using mutexAcquire gets a turn before a higher priority process gets a second turn\r\n");
 	kprintf("Z) Test bad semaphore, also deadlocks\r\n");
 
 	kprintf("===TEST BEGIN===\r\n");
@@ -369,6 +419,21 @@ void testcases(void)
 		ready(create((void *)interruptprint, INITSTK, 3, "INTERRUPTPRINT", 0), 0);
 		ready(create((void *)testnomutex, INITSTK, 4, "TESTNOMUTEX", 0), 0);	
 		ready(create((void *)interruptprintmutex, INITSTK, 1, "INTERRUPTPRINT", 0), 0);
+
+		break;
+
+	case 'N':
+		ready(create((void *)testmutexorder, INITSTK, 1, "TESTMUTEXORDER", 0), 0);
+		ready(create((void *)interruptprintmutexorder, INITSTK, 1, "INTERRUPTPRINT", 0), 0);
+
+		break;
+
+	case 'O':
+		kprintf("So the idea is that lowerprio will attempt a remove_item on an empty buffer and so it will wait and control will be handed to higherprio, then higherprio will insert_item and then resched(). What must happen then is lowerprio will succesfully come back from waiting and succesfully complete remove_item and eventually hand control back to higherprio which will attempt remove_item and get stuck waiting.\r\n");
+		bbuff = createbuffer();
+
+		ready(create((void *)lowerprio, INITSTK, 1, "LOWERPRIO", 1, &bbuff), 0);
+		ready(create((void *)higherprio, INITSTK, 2, "HIGHERPRIO", 1, &bbuff), 0);
 
 		break;
 
